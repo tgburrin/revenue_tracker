@@ -24,7 +24,8 @@ func SetupRouter() *gin.Engine {
 	invoiceRoutes.POST("/process", HandlePurchaseEvent)
 
 	revenueRoutes := api.Group("/revenue")
-	revenueRoutes.POST("/by_date", HandleRevenueDateRequest)
+	revenueRoutes.POST("/by_date", HandleRevenueByDateRequest)
+	revenueRoutes.POST("/by_month", HandleRevenueByMonthRequest)
 	// Authorized group (uses gin.BasicAuth() middleware)
 	// Same than:
 	// authorized := r.Group("/")

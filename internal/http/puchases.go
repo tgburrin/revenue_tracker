@@ -76,6 +76,6 @@ func HandlePurchaseEvent(c *gin.Context) {
 	}
 
 	reqStatus = "success"
-	c.JSON(http.StatusBadRequest, gin.H{"status": reqStatus, "event_id": pe.EventId.String()})
+	c.JSON(http.StatusOK, gin.H{"status": reqStatus, "event_id": pe.EventId.String()})
 	return
 }

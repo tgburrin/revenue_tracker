@@ -62,7 +62,7 @@ create table if not exists revenue_tracker.revenue_event (
     created timestamptz not null,
     paid timestamptz not null,
     currency_code text not null CHECK (currency_code ~ '[A-Z]{3}'),  -- e.g. USD, CAD, GBP
-    amount bigint not null CHECK(amount > 0),
+    amount bigint not null CHECK(amount > 0),  -- amount in the smallest denomination of the currency (e.g. cents)
     term_start_dt timestamptz not null,
     term_end_dt timestamptz not null,
 
@@ -71,9 +71,14 @@ create table if not exists revenue_tracker.revenue_event (
     revenue_amount_daily numeric not null,
     revenue_amount_rounding numeric not null,
 
-    primary key (service_id, valid_to_ts),
-    unique (service_id, valid_from_ts)
+    primary key (service_id, valid_from_ts)
 );
+
+create unique index if not exists re_latest_event_idx on revenue_tracker.revenue_event (service_id) where valid_to_ts = 'Infinity';
+
+-- this is the index that we would use for finding out the revenue over a range of dates at a given point in time when we knew it
+-- a gist index may work best here for time range overlaps
+create index if not exists re_term_valid on revenue_tracker.revenue_event (lower(revenue_ts), upper(revenue_ts), valid_from_ts) include (valid_to_ts, revenue_ts);
 
 create or replace function revenue_tracker.revenue_event_type_2() returns trigger as $$
 BEGIN
@@ -178,3 +183,107 @@ execute procedure revenue_tracker.revenue_event_type_2();
 --
 -- insert into revenue_tracker.revenue_event (service_id, customer_id, currency_code, amount, term_start_dt, term_end_dt, valid_from_ts, created, paid)
 -- values ('938a439c-0273-11ef-8c4d-98fa9b5e176f', '6152979e-0278-11ef-8c4d-98fa9b5e176f', 'USD', 14400, '2021-01-01 09:53:16.543', '2022-01-01 09:53:16.543', '2021-01-01', '2021-01-01', '2021-01-01');
+
+-- create or replace function revenue_tracker.calculate_revenue
+-- (
+--     revenue_range daterange,
+--     cutoff_time timestamptz
+-- )
+-- returns table
+-- (
+--     revenue_range_start_dt date,
+--     revenue_range_end_dt date,
+--     recognized_amount numeric
+-- )
+-- LANGUAGE plpgsql
+-- PARALLEL SAFE
+-- as $$
+-- DECLARE
+--     final_amount numeric;
+-- BEGIN
+--     return query
+--         select daily_amount, final_amount;
+-- END;
+-- $$;
+
+create or replace function revenue_tracker.calculate_event_revenue
+(
+    event revenue_tracker.revenue_event,
+    next_event_start_dt date,
+    revenue_query_range daterange
+)
+returns table
+(
+    revenue_range daterange,
+    recognized_amount numeric
+)
+LANGUAGE plpgsql
+IMMUTABLE
+PARALLEL SAFE
+as $$
+DECLARE
+    event_effective_range daterange;
+    num_days int;
+    rounding_amount numeric default 0.0;
+BEGIN
+    IF next_event_start_dt is not null then
+        event_effective_range := ('['||lower(event.revenue_ts)||','||least(next_event_start_dt, upper(event.revenue_ts))||')')::daterange;
+    else
+        event_effective_range := event.revenue_ts;
+    end if;
+    revenue_range := event_effective_range * revenue_query_range;
+    num_days := upper(revenue_range) - lower(revenue_range);
+    if upper(revenue_range) = upper(event.revenue_ts) then
+        rounding_amount := event.revenue_amount_rounding;
+    end if;
+
+    return query
+        select revenue_range, (event.revenue_amount_daily * num_days) + rounding_amount;
+END;
+$$;
+
+-- select
+--     r.*,
+--     lower(rf.revenue_ts) as cutoff_dt,
+--     rev.*
+-- from
+--     revenue_tracker.revenue_event r
+--         left join revenue_tracker.revenue_event rf on
+--         rf.service_id = r.service_id
+--             and rf.valid_from_ts = r.valid_to_ts
+--         cross join revenue_tracker.calculate_event_revenue(
+--             event => r,
+--             next_event_start_dt => lower(rf.revenue_ts),
+--             revenue_query_range => '[2024-05-01,2024-06-1)'::daterange
+--                    ) as rev
+-- where
+--     r.event_id = '3c1212d0-0281-11ef-8c4d-98fa9b5e176f'
+-- ;
+-- -- in the query below the date range is 5/1 to 6/1 (non inclusive) with a pov of 2024-05-15
+-- select
+--     t1.service_id,
+--     t1.revenue_amount_daily,
+--     ('['||greatest('2024-05-01', lower(t1.revenue_ts))||', '||least('2024-06-01', coalesce(lower(t2.revenue_ts), upper(t1.revenue_ts)))||')')::daterange as revenue_range
+--
+-- from
+--     revenue_tracker.revenue_event t1
+--         left join revenue_tracker.revenue_event t2 on
+--         t1.service_id = t2.service_id
+--             and t1.valid_to_ts = t2.valid_from_ts
+--             and t2.valid_from_ts < '2024-05-15'
+-- where
+--     (
+--         (
+--             lower(t1.revenue_ts) <= '2024-05-01'
+--                 and upper(t1.revenue_ts) > '2024-05-01'
+--             ) or
+--         (
+--             lower(t1.revenue_ts) < '2024-06-01'
+--                 and upper(t1.revenue_ts) >= '2024-06-01'
+--             ) or
+--         (
+--             lower(t1.revenue_ts) > '2024-05-01'
+--                 and upper(t1.revenue_ts) <= '2024-06-01'
+--             )
+--         )
+--   and t1.valid_from_ts < '2024-05-15'

@@ -23,7 +23,24 @@ func (t *Date) String() string {
 	return time.Time(*t).Format("2006-01-02")
 }
 
-func HandleRevenueDateRequest(c *gin.Context) {
+func HandleRevenueByDateRequest(c *gin.Context) {
+	reqStatus := "error"
+	var reqBody struct {
+		RevenueDate  Date       `json:"revenue_date" binding:"required"`
+		POVTimestamp *time.Time `json:"pov_timestamp"`
+	}
+	if err := c.ShouldBindJSON(&reqBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": reqStatus, "error": "Invalid request body: " + err.Error()})
+		return
+	}
+	if reqBody.POVTimestamp != nil {
+		fmt.Printf("%s -> %s\n", reqBody.RevenueDate.String(), reqBody.POVTimestamp.String())
+	} else {
+		fmt.Printf("%s\n", reqBody.RevenueDate.String())
+	}
+}
+
+func HandleRevenueByMonthRequest(c *gin.Context) {
 	reqStatus := "error"
 	var reqBody struct {
 		RevenueDate  Date       `json:"revenue_date" binding:"required"`
