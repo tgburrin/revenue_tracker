@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 	"revenue_tracker/internal/dal"
-	"revenue_tracker/internal/http"
+	"revenue_tracker/internal/httpconf"
 
 	_ "github.com/lib/pq"
 )
@@ -18,7 +18,7 @@ func main() {
 	if dal.DbPool, err = pgxpool.New(context.Background(), os.Getenv("DATABASE_URL")); err != nil {
 		log.Fatalf("Could not connect to database: %v\n", err)
 	}
-	r := http.SetupRouter()
+	r := httpconf.SetupRouter()
 	if err = r.Run(":8080"); err != nil {
 		log.Fatalf("Unable to start server %v\n", err)
 	}
