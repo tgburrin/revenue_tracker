@@ -242,23 +242,6 @@ BEGIN
 END;
 $$;
 
--- select
---     r.*,
---     lower(rf.revenue_ts) as cutoff_dt,
---     rev.*
--- from
---     revenue_tracker.revenue_event r
---         left join revenue_tracker.revenue_event rf on
---         rf.service_id = r.service_id
---             and rf.valid_from_ts = r.valid_to_ts
---         cross join revenue_tracker.calculate_event_revenue(
---             event => r,
---             next_event_start_dt => lower(rf.revenue_ts),
---             revenue_query_range => '[2024-05-01,2024-06-1)'::daterange
---                    ) as rev
--- where
---     r.event_id = '3c1212d0-0281-11ef-8c4d-98fa9b5e176f'
--- ;
 -- -- in the query below the date range is 5/1 to 6/1 (non inclusive) with a pov of 2024-05-15
 -- select
 --     t1.service_id,
@@ -287,3 +270,23 @@ $$;
 --             )
 --         )
 --   and t1.valid_from_ts < '2024-05-15'
+
+-- casting VALUES into a specific record type.
+-- tgburrin=# \d t1
+-- Table "public.t1"
+-- Column  |  Type  | Collation | Nullable |            Default
+-- ---------+--------+-----------+----------+--------------------------------
+--  id      | bigint |           | not null | nextval('t1_id_seq'::regclass)
+--  message | text   |           | not null |
+-- Indexes:
+--     "t1_pkey" PRIMARY KEY, btree (id)
+--
+-- tgburrin=# select (t::t1).* from (VALUES(4, 'this is a test'), (5, 'other'), (6, 'that')) as t;
+-- id |    message
+-- ----+----------------
+--   4 | this is a test
+--   5 | other
+--   6 | that
+-- (3 rows)
+--
+-- Time: 0.302 ms
